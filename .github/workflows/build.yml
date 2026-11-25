@@ -1,5 +1,8 @@
-# Builds SA:COOP on every push and pull request and keeps the archive as an artifact.
-# A tag like v0.2.0 also publishes the archive as a GitHub release, with the text of .github/release-notes.md.
+# Builds SA:COOP on every push and pull request and keeps both archives as artifacts: the full one (SA-COOP.zip) and the
+# light one without the skin packs and the skins' voices (SA-COOP-Lite.zip).
+# A tag like v0.4.0 also publishes them as two GitHub releases with the text of .github/release-notes.md:
+#   "SA:COOP v0.4.0"      on the tag itself, SA-COOP.zip, marked as the latest release;
+#   "SA:COOP v0.4.0 Lite" on the tag v0.4.0-lite (made by the workflow at the same commit), SA-COOP-Lite.zip.
 name: build
 
 on:
@@ -14,6 +17,8 @@ permissions:
 
 jobs:
   build:
+    # the Lite release's own tag (v0.4.0-lite) must not build and publish everything again
+    if: ${{ !endsWith(github.ref, '-lite') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,22 +45,61 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8  # it prints the Russian texts it finds
 
-      - name: Build the archive
+      - name: Build both archives
         run: python tools/build.py dist lite
 
       - uses: actions/upload-artifact@v4
         with:
           name: SA-COOP
-          path: |
-            dist/SA-COOP.zip
-            dist/SA-COOP-Lite.zip
+          path: dist/SA-COOP.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SA-COOP-Lite
+          path: dist/SA-COOP-Lite.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - archive: SA-COOP
+            suffix: ""
+            title: ""
+            latest: "true"
+            intro: ""
+          - archive: SA-COOP-Lite
+            suffix: "-lite"
+            title: " Lite"
+            latest: "false"
+            intro: "Лёгкая версия: без паков скинов (`coop\\skinpacks`) и голосов скинов (`coop\\voices`), около 10 МБ. Вкладка «Паки» в окне F4 пустая, в катсценах и диалогах звучит голос из игры. Всё остальное как в полной версии."
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: dist
+
+      - name: Write the release's text
+        env:
+          INTRO: ${{ matrix.intro }}
+        run: |
+          {
+            if [ -n "$INTRO" ]; then printf '%s\n\n' "$INTRO"; fi
+            cat .github/release-notes.md
+          } > notes.md
 
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: SA:COOP ${{ github.ref_name }}
-          files: |
-            dist/SA-COOP.zip
-            dist/SA-COOP-Lite.zip
-          body_path: .github/release-notes.md
+          tag_name: ${{ github.ref_name }}${{ matrix.suffix }}
+          target_commitish: ${{ github.sha }}
+          name: SA:COOP ${{ github.ref_name }}${{ matrix.title }}
+          files: dist/${{ matrix.archive }}.zip
+          body_path: notes.md
+          make_latest: ${{ matrix.latest }}
