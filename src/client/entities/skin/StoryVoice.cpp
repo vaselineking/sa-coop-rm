@@ -145,7 +145,7 @@ bool Writable(const uint8_t* at, size_t bytes) {
 
 // The lines the loader finished since the last look, replaced where a pack has them
 void Replace(void* loader) {
-    if (!Field<uint8_t>(loader, 0x14)) return;  // m_IsInitialised
+    if (!Field<uint8_t>(loader, 0x14) || Net().NoVoiceover()) return;  // m_IsInitialised; "Disable voiceover": the game's lines
     if (!g_read) ReadPacks();
     if (g_female.lines.empty() && g_male.lines.empty() && g_names.lines.empty()) return;
     auto* slots = Field<uint8_t*>(loader, 0x00);   // CAEBankSlot[], 0x12D4 bytes each
@@ -213,7 +213,7 @@ void StoryLineFrom(int slot, bool hosts) {
 }
 
 bool StoryLine(const char* text, bool hosts, std::string& shown) {
-    if (!text || g_names.lines.empty() || !StoryCjModel(hosts)) return false;
+    if (!text || g_names.lines.empty() || Net().NoVoiceover() || !StoryCjModel(hosts)) return false;
     shown = WithoutName(text);
     return shown != text;
 }

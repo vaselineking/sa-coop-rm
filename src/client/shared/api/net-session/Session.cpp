@@ -57,6 +57,8 @@ std::string Session::PeerName(uint8_t id) const {
     return p ? p->name : Format(TR("игрок %d", "player %d"), id);
 }
 
+bool Session::NoVoiceover() const { return Online() ? m_noVoiceover : Cfg().noVoiceover; }
+
 void Session::SendChat(const std::string& text) {
     Writer w(C_CHAT);
     w.Str(text, kMaxChatLen * 4);
@@ -151,6 +153,8 @@ void Session::HandleService(uint8_t id, Reader& r) {
             m_partnerTeleport = w.partnerTeleport;
             m_sharedLife = w.sharedLife;
             m_partnerCheats = w.partnerCheats;
+            m_noMissionRespawn = w.noMissionRespawn;
+            m_noVoiceover = w.noVoiceover;
             m_peers.clear();
             for (auto& p : w.players) m_peers[p.id] = PeerInfo{p.id, p.name, p.isHost, 0};
             m_state = State::Online;
@@ -169,6 +173,11 @@ void Session::HandleService(uint8_t id, Reader& r) {
                                   "Shared life is on: if a partner dies, the host's mission fails."));
             if (!m_partnerCheats && !IsHost())
                 chat.AddSystem(TR("Хост запретил напарникам чит-коды.", "The host turned cheat codes off for partners."));
+            if (m_noMissionRespawn)
+                chat.AddSystem(TR("Без возрождения на миссиях: погибший смотрит за другими до конца миссии, а гибель хоста её проваливает.",
+                                  "No mission respawn: whoever dies watches the others till the mission ends, and the host's death fails it."));
+            if (m_noVoiceover)
+                chat.AddSystem(TR("Озвучка скинов выключена: всегда звучит голос из игры.", "Skin voiceover is off: the game's voice always plays."));
             if (onOnline) onOnline();
             break;
         }

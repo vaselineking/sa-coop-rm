@@ -41,6 +41,11 @@ constexpr int kRate = 16000, kFrame = 320;  // 20 ms
 constexpr int kInBuffers = 8, kOutBuffers = 16;
 constexpr size_t kMaxQueue = 12;  // 240 ms: older audio is dropped
 constexpr size_t kStartQueue = 3;  // 60 ms of buffering before a stream starts
+// Up to 100 players: each voice heard is a waveOut stream of its own. At most this many play at once (a new one waits
+// till one of them is quiet), and a stream silent this long is closed (it opens again with the next talk), so a session
+// of many does not hold a device for each player who once said a word.
+constexpr int kMaxVoices = 8;
+constexpr uint64_t kIdleCloseMs = 5000;
 using Frame = std::array<int16_t, kFrame>;
 // the microphone's icon (ui/microphone.svg, in coop.rc as MICROPHONE): a character of the fonts (ui::kMicIcon)
 using ui::kMicIcon;
@@ -63,6 +68,7 @@ struct Output {
     WAVEHDR hdr[kOutBuffers] = {};
     int16_t buf[kOutBuffers][kFrame] = {};
     bool playing = false;
+    uint64_t usedMs = 0;  // a frame last given to the device
 
     Output() = default;
     Output(const Output&) = delete;
@@ -327,6 +333,7 @@ private:
                 }
                 for (WAVEHDR& h : o.hdr) h.dwFlags = WHDR_DONE;  // all free
             }
+            if (!take.empty()) o.usedMs = NowMs();
             bool any = false;
             size_t next = 0;
             for (int i = 0; i < kOutBuffers; ++i) {
@@ -346,6 +353,7 @@ private:
                 any = true;
             }
             o.playing = any || more;  // re-buffer after a gap
+            if (!o.playing && NowMs() - o.usedMs > kIdleCloseMs) m_outputs.erase(id);  // ~Output closes its device
         }
     }
 
@@ -432,6 +440,11 @@ private:
         if (!r.Ok() || from == Net().MyId() || !Cfg().voiceEnabled || m_audioOk < 0 ||
             !adpcm::Decode(data.data(), data.size(), pcm) || pcm.size() != kFrame)
             return;
+        if (!Speaking(from)) {  // a new voice: only while fewer than kMaxVoices are heard
+            int others = 0;
+            for (auto& [id, heard] : m_heard) others += id != from && Speaking(id);
+            if (others >= kMaxVoices) return;
+        }
         Heard& h = m_heard[from];
         if (h.hasSeq && (int16_t)(seq - h.lastSeq) <= 0) return;  // late or duplicate
         for (int16_t v : pcm) m_rxEnergy += (double)v * v;

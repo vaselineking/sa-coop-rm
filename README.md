@@ -15,7 +15,7 @@
 
 <p align="center"><b>English</b> · <a href="README.ru.md">Русский</a></p>
 
-SA:COOP is a mod for GTA San Andreas that lets two, three or four players go through the story together over the
+SA:COOP is a mod for GTA San Andreas that lets up to a hundred players go through the story together over the
 network. One player is the host: the game runs on their save, and they start the missions. The others connect to them
 and play in the same world as characters of their own, with their own money, skills and look.
 
@@ -138,6 +138,11 @@ on every screen. Next to it is the "Shared life" checkbox: with it, any player's
 Without it, a host who dies gets up next to the nearest partner a couple of seconds later and the mission goes on. It
 fails only when everyone dies.
 
+The "No mission respawn" checkbox changes that: a player who dies in the host's story mission does not get up, and their
+camera follows the other players (fire and aim switch between them) until the mission is passed or failed. Then they get
+up next to the host. The host's own death fails the mission at once. The "Disable voiceover" checkbox turns the skins'
+own voices off for everyone: cutscenes and dialogue always play the game's voice.
+
 ### Russian and English
 
 The SA:COOP window, the chat and the hints come in Russian and English. The language switch is at the top of the
@@ -160,7 +165,9 @@ on their own and replace nothing in the game. When you write in the chat, CJ ges
 
 ### Skins
 
-The F4 key opens the skins window. It holds the game's ordinary people in tabs (men, women, gangs, service), skin
+The F4 key opens the skins window. Its "SA" tab holds every skin of SA-MP under SA-MP's numbers (0 to 311): the game's
+people and the story's characters (Sweet, Ryder, Big Smoke, Cesar and the others). Numbers 300 to 311 are SA-MP's own
+models and work only if the game's archives have them. The other tabs hold skin
 packs by other authors that the mod brings along (new Families, Ballas, Vagos and Aztecas members, gangs of San Fierro
 and Las Venturas, bikers, beta pedestrians and pedestrians cut from the game) and your own skins. The chosen skin shows at once in the window, and all players see the one you wear. It stays after loading a
 save and in cutscenes, where the host plays CJ in its skin for everyone and moves its lips while CJ talks, and the
@@ -383,7 +390,7 @@ src/
 │   ├── features/  story and cutscenes, progress, garages, voice, weather and more
 │   ├── entities/  session, player, vehicle, ped, mission, profile
 │   └── shared/    engine wrappers, network, drawing and input, config
-├── server/        coop-server.exe, the server for 2 to 4 players
+├── server/        coop-server.exe, the server for 1 to 100 players
 ├── loader/        vorbisFile.dll, the ASI loader for a clean game
 └── common/        protocol, network, log and utilities for all three
 ```

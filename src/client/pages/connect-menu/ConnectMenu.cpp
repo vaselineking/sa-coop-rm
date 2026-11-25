@@ -30,8 +30,9 @@ bool g_autoShown = false;
 int g_tab = 0;  // 0 "connect", 1 "create"
 bool g_keysPage = false;  // the mod's keys and the microphone instead of the rest
 int g_capture = -1;       // the key of that action is being chosen (the next key pressed)
-std::wstring g_nick, g_addr, g_port, g_password;
+std::wstring g_nick, g_addr, g_port, g_password, g_players;
 std::string g_formError;
+int g_listScroll = 0;  // the first player row shown in the session's list
 int g_slotIndex = 0;  // index into the slot list
 std::vector<flow::SaveSlotInfo> g_slots;
 uint64_t g_slotsTime = 0;
@@ -67,6 +68,7 @@ void LoadFields() {
     g_addr = Widen(cfg.host);
     g_port = std::to_wstring(cfg.port);
     g_password = Widen(cfg.password);
+    g_players = std::to_wstring(cfg.maxPlayers);
     g_tab = cfg.wantsHost ? 1 : 0;
     g_formError.clear();
     RefreshSlots();
@@ -91,6 +93,14 @@ bool ApplyNick() {
     Cfg().nickname = nick;
     g_nick = Widen(nick);
     return true;
+}
+
+// the players' box typed in: 1 to proto::kMaxPlayers, an empty box keeps the last number
+void ApplyPlayers() {
+    if (g_players.empty()) return;
+    int n = std::clamp(_wtoi(g_players.c_str()), 1, proto::kMaxPlayers);
+    Cfg().maxPlayers = n;
+    if (std::to_wstring(n) != g_players) g_players = std::to_wstring(n);
 }
 
 uint16_t PortValue() {
@@ -187,7 +197,7 @@ void RenderConnectMenu() {
     float lh = g.LineHeight(FONT_NORMAL), sh = g.LineHeight(FONT_SMALL), mh = g.LineHeight(FONT_MENU),
           ch = g.LineHeight(FONT_MENU_SMALL), bh = g.LineHeight(FONT_BIG);
     float rowH = lh + 14 * s;
-    float W = 820 * s, H = 690 * s;
+    float W = 820 * s, H = 735 * s;
     float x = (g.Width() - W) * 0.5f, y = (g.Height() - H) * 0.5f;
     float cx = x + 52 * s, cw = W - 104 * s;
     float room = mh * 1.6f;  // the space beside a menu item's name
@@ -287,8 +297,20 @@ void RenderConnectMenu() {
         caption(cx, host ? Format(TR("Игроки: %d из %d", "Players: %d of %d"), 1 + (int)net.Peers().size(), Cfg().maxPlayers)
                          : Format(TR("Игроки: %d", "Players: %d"), 1 + (int)net.Peers().size()));
         cy += ch + 8 * s;
+        // Up to 100 players: as many rows as the window has room for above the mark's colour, the rest by the wheel
+        float rh = lh + 14 * s, step = rh + 4 * s;
+        float below = (Cfg().partnerBlip ? 18 * s + ch + 6 * s + rowH : 0.0f) + 8 * s;
+        int total = 1 + (int)net.Peers().size();
+        int shown = std::max(1, (int)((bodyBottom - below - cy + 4 * s) / step));
+        float listTop = cy, listH = (float)std::min(total, shown) * step;
+        auto& st = In().State();
+        if (st.wheel && st.mouseX >= cx && st.mouseX < cx + cw && st.mouseY >= listTop && st.mouseY < listTop + listH)
+            g_listScroll -= st.wheel;
+        g_listScroll = std::clamp(g_listScroll, 0, std::max(0, total - shown));
+        int index = 0;
         auto row = [&](const std::string& name, bool isHost, uint32_t ping, bool me) {
-            float rh = lh + 14 * s;
+            int i = index++;
+            if (i < g_listScroll || i >= g_listScroll + shown) return;
             g.Rect(cx, cy, cw, rh, 0xFF090C10);
             g.Text(FONT_NORMAL, cx + 14 * s, cy + 7 * s, me ? name + TR(" (вы)", " (you)") : name, me ? 0xFFFFFFFF : kText,
                    TEXT_SHADOW);
@@ -299,6 +321,10 @@ void RenderConnectMenu() {
         };
         row(Cfg().nickname, host, net.Rtt(), true);
         for (auto& [id, p] : net.Peers()) row(p.name, p.isHost, p.ping, false);
+        if (total > shown) {  // where the list is scrolled to
+            float barH = listH * (float)shown / (float)total, barY = listTop + listH * (float)g_listScroll / (float)total;
+            g.Rect(cx + cw + 6 * s, barY, 3 * s, barH - 4 * s, kSaMuted);
+        }
         if (host && net.Peers().empty()) para(TR("Ждём друга...", "Waiting for your friend..."), kSaMuted);
         // the colour of our own mark on the other players' radar (also /blip in the chat), saved and sent at once
         if (Cfg().partnerBlip) {
@@ -394,14 +420,17 @@ void RenderConnectMenu() {
         enter |= w::TextBox("pass", cx + 170 * s, cy, cw - 170 * s - (g_tab == 1 ? playersW + 20 * s : 0.0f), rowH, g_password, 32, true, false,
                             TR("необязательно", "optional"));
         if (g_tab == 1) {
-            int& players = Cfg().maxPlayers;
-            if (int d = w::Selector("players", cx + cw - playersW, cy, playersW, rowH, std::to_string(players)))
-                players = 2 + (players - 2 + d + proto::kMaxPlayers - 1) % (proto::kMaxPlayers - 1);
+            enter |= w::TextBox("players", cx + cw - playersW, cy, playersW, rowH, g_players, 3, false, true,
+                                TR("1-100", "1-100"));
+            ApplyPlayers();
         }
         cy += rowH + 22 * s;
         if (g_tab == 1) {  // the host decides for the whole game; saved with the other settings when the server starts
             w::Checkbox("ff", cx, cy, TR("Урон по напарнику", "Friendly fire"), Cfg().friendlyFire);
             w::Checkbox("life", cx + cw * 0.5f, cy, TR("Общая жизнь", "Shared life"), Cfg().sharedLife);
+            cy += lh * 0.8f + 22 * s;
+            w::Checkbox("respawn", cx, cy, TR("Без возрождения на миссиях", "No mission respawn"), Cfg().noMissionRespawn);
+            w::Checkbox("voiceover", cx + cw * 0.5f, cy, TR("Без озвучки скинов", "Disable voiceover"), Cfg().noVoiceover);
             cy += lh * 0.8f + 22 * s;
             bool noTeleport = !Cfg().partnerTeleport;
             if (w::Checkbox("tp", cx, cy, TR("Запретить напарникам /tp и /tphere", "No /tp and /tphere for partners"), noTeleport))

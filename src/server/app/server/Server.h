@@ -22,6 +22,8 @@ struct Config {
     bool partnerTeleport = true;  // the partners may use /tp and /tphere
     bool sharedLife = false;      // a partner's death fails the host's story mission
     bool partnerCheats = true;    // the partners' cheat codes work
+    bool noMissionRespawn = false;  // the dead watch the others till the host's story mission ends; the host's death fails it
+    bool noVoiceover = false;       // the skins' own voices are off for everyone
     uint16_t port = 7788;
     int maxPlayers = 2;
     std::wstring dataDir;    // profiles/, world/

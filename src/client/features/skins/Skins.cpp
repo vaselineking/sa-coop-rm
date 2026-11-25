@@ -27,6 +27,7 @@
 #include "common/lib/ini/Ini.h"
 #include "common/lib/log/Log.h"
 #include "common/lib/util/Util.h"
+#include "entities/ped/Peds.h"
 #include "entities/player/Players.h"
 #include "entities/skin/OwnSkins.h"
 #include "entities/skin/SceneVoice.h"
@@ -52,13 +53,31 @@ bool CutsceneOn() { return Ref<uint8_t>(0xB5F851) != 0; }  // CCutsceneMgr::ms_r
 // up frames later, once the script starts it
 bool CutsceneLoaded() { return Ref<int32_t>(0xB5F84C) != 0; }  // CCutsceneMgr::ms_cutsceneLoadStatus
 
-Group GroupOf(int model) {
-    void* info = ModelInfoOf(model);
-    int type = info ? Field<int32_t>(info, 0x28) : 4;  // CPedModelInfo::m_nPedType
-    if (type == 5 || type == 22) return WOMEN;                 // CIVFEMALE, PROSTITUTE
-    if (type >= 7 && type <= 16) return GANGS;                 // GANG1-10
-    if (type == 6 || type == 18 || type == 19) return SERVICE;  // COP (SWAT, army), MEDIC, FIREMAN
-    return MEN;
+// SA-MP's skins the game has no ped model of their own for (sampwiki Skins:All): the story's characters, which the game
+// loads by name into its special slots (290-299) as its scripts do, and SA-MP's own police and girls (300-311), which only
+// a game with those files in its archives has. 74 is no skin in SA-MP either.
+struct Named {
+    int id;
+    const char* name;
+};
+constexpr Named kNamed[] = {
+    {1, "truth"},     {2, "maccer"},    {3, "andre"},    {4, "bbthin"},   {5, "bb"},        {6, "emmet"},    {8, "janitor"},
+    {42, "jethro"},   {65, "kendl"},    {86, "ryder3"},  {119, "sindaco"}, {149, "smokev"},  {208, "suzie"},  {265, "tenpen"},
+    {266, "pulaski"}, {267, "hern"},    {268, "dwayne"}, {269, "smoke"},  {270, "sweet"},   {271, "ryder"},  {272, "forelli"},
+    {273, "tbone"},   {289, "zero"},    {290, "rose"},   {291, "paul"},   {292, "cesar"},   {293, "ogloc"},  {294, "wuzimu"},
+    {295, "torino"},  {296, "jizzy"},   {297, "maddogg"}, {298, "cat"},   {299, "claude"},  {300, "lapdna"}, {301, "sfpdna"},
+    {302, "lvpdna"},  {303, "lapdpc"},  {304, "lapdpd"}, {305, "lvpdpc"}, {306, "wfyclpd"}, {307, "vbfycpd"}, {308, "wfyclem"},
+    {309, "wfycllv"}, {310, "csherna"}, {311, "dsherna"}};
+constexpr int kLastSamp = 311;
+
+// the game's own ped model for that SA-MP number
+bool Standard(int id) { return id >= kFirst && id <= kLast && IsPedModel(id); }
+// the story character's model name for that SA-MP number, null: none (a game's own ped, CJ, 74)
+const char* NamedFor(int id) {
+    if (Standard(id)) return nullptr;
+    for (const Named& n : kNamed)
+        if (n.id == id) return n.name;
+    return nullptr;
 }
 
 // The names the game's files give them (peds.ide): the model infos keep only their keys
@@ -91,15 +110,28 @@ std::string OwnChosen() {
     const std::string& v = Cfg().skin;
     return v.size() > 4 && ToLower(v.substr(v.size() - 4)) == ".dff" ? v.substr(0, v.size() - 4) : std::string();
 }
-int StandardChosen() {
-    int m = atoi(Cfg().skin.c_str());
-    return OwnChosen().empty() && m >= kFirst && m <= kLast ? m : 0;
+// the SA tab's number worn by choice (SA-MP's), 0: CJ or an own skin
+int ChosenId() {
+    int id = atoi(Cfg().skin.c_str());
+    return OwnChosen().empty() && id > 0 && id <= kLastSamp && (Standard(id) || NamedFor(id)) ? id : 0;
 }
-// the model to wear by choice, an own skin loaded now; 0: CJ, -1: it would not load
+int StandardChosen() {
+    int id = ChosenId();
+    return Standard(id) ? id : 0;
+}
+std::string SpecialChosen() {
+    const char* name = NamedFor(ChosenId());
+    return name ? name : "";
+}
+// the model to wear by choice, an own skin loaded now, a story character in its slot; 0: CJ, -1: it would not load
+// (a story character: not yet)
 int ChosenModel() {
     std::string own = OwnChosen();
-    return own.empty() ? StandardChosen() : skin::OwnModel(own);
+    if (!own.empty()) return skin::OwnModel(own);
+    std::string special = SpecialChosen();
+    return special.empty() ? StandardChosen() : Peds::Instance().SpecialModelFor(special);
 }
+bool IsSpecialSlot(int model) { return model >= 290 && model <= 299; }
 
 // The mod's skin packs (coop\skinpacks\<folder>), in the window's order under their titles; a folder not named here
 // comes after them under its own name. The authors allowed the packs in the mod (10.11; Criminal Peds Vary's gangs 12.11).
@@ -337,6 +369,8 @@ void __fastcall HookCsPreRender(void* o, void* edx) {
 }
 
 uint64_t g_retryMs = 0;
+uint64_t g_pendingUntil = 0;  // the F4 window chose a story character still loading: it goes on over the skin worn now
+int g_shownSpecial = -1;      // the story character's slot the window's preview shows
 
 class Skins : public Module {
 public:
@@ -355,12 +389,24 @@ public:
         else if (g_csCj && CutsceneOn()) UpdateTalk();
         // the chosen skin on again (a loaded game made him CJ): only over CJ, another mod's skin is left alone
         CPlayerPed* me = !Cfg().skin.empty() && core::IsPlayerReady() ? FindPlayerPed(0) : nullptr;
-        if (!me || me->ModelIndex() != 0 || NowMs() < g_retryMs || !WhyNot().empty()) return;
-        g_retryMs = NowMs() + 2000;
+        bool pending = NowMs() < g_pendingUntil;
+        if (!me || (me->ModelIndex() != 0 && !pending) || NowMs() < g_retryMs || !WhyNot().empty()) return;
+        std::string special = SpecialChosen();
+        g_retryMs = NowMs() + (special.empty() ? 2000 : 250);  // a story character comes in a frame or two
         int want = ChosenModel();
-        if (want <= 0) return;  // CJ, or an own skin gone from the folder (it is put on again once it is back)
-        if (Players::SetModel(me, want)) LOGI("Skin %d put on again", want);
-        else LOGW("Skin %d could not be put on", want);
+        // CJ, an own skin gone from the folder (it is put on again once it is back), a story character still loading
+        if (want <= 0) {
+            if (!special.empty() && !Peds::SpecialExists(special)) g_pendingUntil = 0;
+            return;
+        }
+        g_pendingUntil = 0;
+        if (me->ModelIndex() == want) return;
+        if (Players::SetModel(me, want)) {
+            if (IsSpecialSlot(want)) Peds::Instance().SpecialWorn(want);  // kept by our player from now on
+            LOGI("Skin %d put on%s", want, special.empty() ? " again" : (" (" + special + ")").c_str());
+        } else {
+            LOGW("Skin %d could not be put on", want);
+        }
     }
 
     // the own skins' clumps are skinned and outlive CGame::Shutdown (skin::LetAllGo): out before the engine stops
@@ -374,10 +420,7 @@ struct Reg {
 
 const char* GroupName(Group g) {
     switch (g) {
-        case MEN: return TR("Мужчины", "Men");
-        case WOMEN: return TR("Женщины", "Women");
-        case GANGS: return TR("Банды", "Gangs");
-        case SERVICE: return TR("Служба", "Service");
+        case SA: return "SA";
         case PACKS: return TR("Паки", "Packs");
         case OWN: return TR("Свои", "Own");
         default: return "";
@@ -394,8 +437,22 @@ void Rescan() {
 
 const std::vector<Skin>& List() {
     if (g_list.empty() && IsPedModel(kFirst)) {  // the model infos are made with the game
-        for (int m = kFirst; m <= kLast; ++m)
-            if (IsPedModel(m)) g_list.push_back({m, GroupOf(m), NameOf(m)});
+        Skin cj;
+        cj.name = "CJ", cj.id = 0;  // wearing it is taking the skin off
+        g_list.push_back(cj);
+        for (int id = 1; id <= kLastSamp; ++id) {
+            Skin s;
+            s.id = id;
+            if (Standard(id)) {
+                s.model = id, s.name = NameOf(id);
+            } else if (const char* name = NamedFor(id)) {
+                s.special = name, s.name = name;
+                for (char& c : s.name) c = (char)toupper((unsigned char)c);  // as the game's are shown
+            } else {
+                continue;  // 74, or a model a mod took away
+            }
+            g_list.push_back(std::move(s));
+        }
         g_standard = g_list.size();
         AddPacked();
         for (const std::string& name : skin::OwnNames()) g_list.push_back({0, OWN, name, name});
@@ -403,13 +460,35 @@ const std::vector<Skin>& List() {
     return g_list;
 }
 
-int ModelOf(const Skin& s, std::string* why) { return s.file.empty() ? s.model : skin::OwnModel(s.file, why); }
+int ModelOf(const Skin& s, std::string* why) {
+    if (!s.file.empty()) return skin::OwnModel(s.file, why);
+    if (s.special.empty()) return s.model;
+    if (!Peds::SpecialExists(s.special)) {
+        if (why) *why = s.id >= 300 ? TR("Этого скина нет в файлах игры: он есть только в SA-MP.", "The game's files lack this skin: SA-MP alone has it.")
+                                    : TR("Этого скина нет в файлах игры.", "The game's files lack this skin.");
+        return -1;
+    }
+    return Peds::Instance().SpecialModelFor(s.special);  // -1 while it loads
+}
 
-bool IsChosen(const Skin& s) { return s.file.empty() ? s.model && s.model == StandardChosen() : s.file == OwnChosen(); }
+bool IsChosen(const Skin& s) {
+    if (!s.file.empty()) return s.file == OwnChosen();
+    if (s.id == 0) return !AnyChosen();
+    return s.id > 0 && s.id == ChosenId();
+}
 
-bool AnyChosen() { return StandardChosen() || !OwnChosen().empty(); }
+bool AnyChosen() { return ChosenId() || !OwnChosen().empty(); }
 
-void LetUnusedGo() { skin::LetUnusedGo(OwnChosen()); }
+void LetUnusedGo() {
+    skin::LetUnusedGo(OwnChosen());
+    Previewed(-1);
+}
+
+void Previewed(int model) {
+    if (model == g_shownSpecial) return;
+    if (g_shownSpecial >= 0) Peds::Instance().SpecialWorn(g_shownSpecial);  // not needed by us now: whoever wears it keeps it
+    g_shownSpecial = IsSpecialSlot(model) ? model : -1;
+}
 
 std::string WhyNot() {
     CPlayerPed* me = core::IsPlayerReady() ? FindPlayerPed(0) : nullptr;
@@ -425,7 +504,9 @@ bool Wear(const Skin* s, std::string& why) {
     why = WhyNot();
     if (!why.empty()) return false;
     CPlayerPed* me = FindPlayerPed(0);
+    if (s && s->id == 0) s = nullptr;  // the SA tab's CJ
     if (!s) {
+        g_pendingUntil = 0;
         if (me->ModelIndex() != 0) {
             Players::SetModel(me, 0);
             Call<0x5A82C0>(me, false);  // CClothes::RebuildPlayer: his own clothes, fat and muscle from the stats
@@ -435,9 +516,17 @@ bool Wear(const Skin* s, std::string& why) {
         return true;
     }
     int model = ModelOf(*s, &why);
+    if (model <= 0 && !s->special.empty() && why.empty()) {  // a story character still loading: on in a moment
+        Keep(std::to_string(s->id));
+        g_pendingUntil = NowMs() + 15000, g_retryMs = 0;
+        LOGI("Skin %d (%s) chosen, loading", s->id, s->special.c_str());
+        return true;
+    }
     if (model <= 0) return false;
     if (!Players::SetModel(me, model)) return why = TR("Модель не загрузилась.", "The model did not load."), false;
-    Keep(s->file.empty() ? std::to_string(model) : s->file + ".dff");
+    if (IsSpecialSlot(model)) Peds::Instance().SpecialWorn(model);
+    g_pendingUntil = 0;
+    Keep(s->file.empty() ? std::to_string(s->id >= 0 ? s->id : model) : s->file + ".dff");
     LOGI("Skin %d (%s) worn", model, s->name.c_str());
     return true;
 }

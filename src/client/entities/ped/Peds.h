@@ -118,7 +118,11 @@ public:
     // the model here of the special character `name`: its slot, or a free one asked for it, from the top (scripts and
     // cutscenes fill them from 290); -1 while it loads or with no slot free
     int SpecialModelFor(const std::string& name);
-    void SpecialWorn(int model);  // a copy wears a special model we asked for: it is kept by that from now on
+    // a copy or our player wears a special model we asked for, or the skins' window showed it and moved on: it is kept
+    // by whoever wears it from now on, and goes with the last one
+    void SpecialWorn(int model);
+    // this game's archives have the special character `name` (another player's mods, SA-MP's own skins 300-311 may not)
+    static bool SpecialExists(const std::string& name);
     // a script here fills that slot with another character: the copies wearing it are made again elsewhere (the game
     // drops the model from under script people, and a copy is one)
     void RespawnCopiesOf(int model);

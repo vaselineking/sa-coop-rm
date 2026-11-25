@@ -131,6 +131,12 @@ RequestSpecialFn g_origRequestSpecial = nullptr;
 void MakeWay(int model, const char* name) {
     if (!name || !_stricmp(Peds::Instance().SpecialName(model).c_str(), name)) return;
     Peds::Instance().RespawnCopiesOf(model);
+    // our player in a story character's skin (features/skins, the F4 window) is CJ till the skin finds another slot
+    if (CPlayerPed* me = core::IsPlayerReady() ? FindPlayerPed(0) : nullptr; me && me->ModelIndex() == model) {
+        Players::SetModel(me, 0);
+        Call<0x5A82C0>(me, false);  // CClothes::RebuildPlayer: his own clothes, fat and muscle from the stats
+        LOGI("Our special character makes way for %s", name);
+    }
     for (auto& [id, other] : Players::Instance().All())
         if (RemotePlayer* rp = Players::Instance().Get(id); rp && rp->ped && rp->ped->ModelIndex() == model) {
             Players::SetModel(rp->ped, 0);
@@ -388,23 +394,37 @@ int Peds::SpecialModelFor(const std::string& name) {
     if (name.empty()) return -1;
     for (int m = kSpecialFirst; m <= kSpecialLast; ++m)
         if (!_stricmp(SpecialName(m).c_str(), name.c_str()) && ModelLoadState(m) != 0) return IsModelLoaded(m) ? m : -1;
-    // a name this game's archives lack (another player's mods): RequestSpecialModel takes the garbage position and size
-    // of a failed CDirectory::FindItem (0x409F76) and the streamer crashed on it
-    void* dir = Ref<void*>(0x8E48D0);  // CStreaming::ms_pExtraObjectsDir
-    if (!dir || !CallMethod<0x532450, void*>(dir, name.c_str())) {  // CDirectory::FindItem
+    if (!SpecialExists(name)) {
         static std::set<std::string> told;  // retried every 100 ms: once is enough for a report
-        if (told.insert(name).second) LOGW("Special character %s of the other game is missing here: its copy is not shown", name.c_str());
+        if (told.insert(name).second) LOGW("Special character %s is missing here: it is not shown", name.c_str());
         return -1;
     }
+    auto ask = [&](int m) {
+        g_origRequestSpecial(m, name.c_str(), 2);  // STREAMING_GAME_REQUIRED: until a copy wears it (SpecialWorn)
+        m_specialNames[m] = name;
+        m_ourSpecials.insert(m);
+        LOGI("Special character %s asked for in slot %d", name.c_str(), m);
+        return -1;
+    };
     for (int m = kSpecialLast; m >= kSpecialFirst; --m)
-        if (ModelLoadState(m) == 0) {  // nothing in it, nothing asked for
-            g_origRequestSpecial(m, name.c_str(), 2);  // STREAMING_GAME_REQUIRED: until a copy wears it (SpecialWorn)
-            m_specialNames[m] = name;
-            m_ourSpecials.insert(m);
-            LOGI("Special character %s asked for in slot %d", name.c_str(), m);
-            return -1;
-        }
+        if (ModelLoadState(m) == 0) return ask(m);  // nothing in it, nothing asked for
+    // None empty: one in memory that nobody wears (m_nRefCount) and nobody needs (no GAME_REQUIRED, MISSION_REQUIRED,
+    // KEEP_IN_MEMORY): a character the skins' window showed, a copy's of a player who left. RequestSpecialModel puts
+    // the new one in its place.
+    for (int m = kSpecialLast; m >= kSpecialFirst; --m) {
+        void* info = ModelInfoOf(m);
+        uint8_t* si = StreamingInfoOf(m);
+        if (info && si && ModelLoadState(m) == 1 && Field<uint16_t>(info, 0x08) == 0 && !(si[6] & 0x0E) && !m_ourSpecials.count(m))
+            return ask(m);
+    }
     return -1;
+}
+
+// A name the archives lack: RequestSpecialModel takes the garbage position and size of a failed CDirectory::FindItem
+// (0x409F76) and the streamer crashed on it
+bool Peds::SpecialExists(const std::string& name) {
+    void* dir = Ref<void*>(0x8E48D0);  // CStreaming::ms_pExtraObjectsDir
+    return !name.empty() && dir && CallMethod<0x532450, void*>(dir, name.c_str());  // CDirectory::FindItem
 }
 
 void Peds::OnInstallHooks() {

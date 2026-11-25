@@ -362,6 +362,8 @@ void Server::Join(Player& p, const Hello& h, const std::string& name) {
     wel.partnerTeleport = m_cfg.partnerTeleport;
     wel.sharedLife = m_cfg.sharedLife;
     wel.partnerCheats = m_cfg.partnerCheats;
+    wel.noMissionRespawn = m_cfg.noMissionRespawn;
+    wel.noVoiceover = m_cfg.noVoiceover;
     wel.worldAvailable = !m_world.empty();
     Writer w(S_WELCOME);
     wel.Write(w);

@@ -29,7 +29,7 @@ constexpr uint32_t kText = 0xFFE6E9EF;
 
 bool g_visible = false;
 bool g_captured = false;
-skins::Group g_group = skins::MEN;
+skins::Group g_group = skins::SA;
 int g_sel[skins::GROUPS] = {};
 int g_scroll = 0;
 float g_view = 0.0f;
@@ -103,7 +103,7 @@ void TestSkinsMenu(const std::string& item) {
     for (int k = 0; k < skins::GROUPS; ++k) {
         auto items = Items((skins::Group)k);
         for (size_t i = 0; i < items.size(); ++i)
-            if (items[i]->file.empty() ? std::to_string(items[i]->model) == item : items[i]->file == item)
+            if (items[i]->file.empty() ? std::to_string(items[i]->id >= 0 ? items[i]->id : items[i]->model) == item : items[i]->file == item)
                 g_group = (skins::Group)k, g_sel[k] = (int)i, g_scroll = 0, g_view = 0.0f, g_reveal = true;
     }
 }
@@ -208,7 +208,9 @@ void RenderSkinsMenu() {
         bool hover = Hovered(cx, ry, listW, rowH) && Hovered(cx, cy, listW, listH);
         g.Rect(cx, ry, listW, rowH - 3 * s, i == sel ? 0xFF16202A : hover ? 0xFF10161D : 0xFF090C10);
         bool own = !items[i]->file.empty();
-        if (!own) g.Text(FONT_SMALL, cx + 58 * s, ry + (rowH - sh) * 0.5f, std::to_string(items[i]->model), kSaMuted, TEXT_RIGHT);
+        if (!own)  // SA-MP's number
+            g.Text(FONT_SMALL, cx + 58 * s, ry + (rowH - sh) * 0.5f, std::to_string(items[i]->id >= 0 ? items[i]->id : items[i]->model),
+                   kSaMuted, TEXT_RIGHT);
         std::string label = items[i]->name + (skins::IsChosen(*items[i]) ? TR(" · надет", " · worn") : "");
         float lx = cx + (own ? 18 : 74) * s;
         g.Text(FONT_NORMAL, lx, ry + (rowH - lh) * 0.5f, Fit(FONT_NORMAL, label, cx + listW - 16 * s - lx), i == sel ? kSaBlue : kText,
@@ -234,10 +236,14 @@ void RenderSkinsMenu() {
     // the preview: the chosen model standing, turned by dragging it; an own skin is loaded to be shown
     std::string broken;
     int model = chosen ? skins::ModelOf(*chosen, &broken) : -1;
+    if (chosen && chosen->id == 0) model = 0;  // CJ: our own CJ in the preview
+    skins::Previewed(model);
     float px = cx + listW + 24 * s, py = y + mh + ch + 62 * s;
     g.Rect(px, py, pv, pv, 0xFF0C1117);
-    if (void* tex = model > 0 ? anims::PreviewTexture() : nullptr) g.Image(tex, px, py, pv, pv);
-    else if (!broken.empty()) g.Text(FONT_SMALL, px + 14 * s, py + 14 * s, broken, kSaRed, TEXT_SHADOW);
+    if (void* tex = model > 0 || (model == 0 && !skins::AnyChosen()) ? anims::PreviewTexture() : nullptr) g.Image(tex, px, py, pv, pv);
+    else if (!broken.empty()) g.Text(FONT_SMALL, px + 14 * s, py + 14 * s, Fit(FONT_SMALL, broken, pv - 28 * s), kSaRed, TEXT_SHADOW);
+    else if (chosen && !chosen->special.empty() && model < 0)  // a story character comes into its slot
+        g.Text(FONT_SMALL, px + 14 * s, py + 14 * s, TR("Загрузка...", "Loading..."), kSaMuted, TEXT_SHADOW);
     g.RectOutline(px, py, pv, pv, kSaLine, std::max(1.0f, s));
     if (st.lmb && (g_dragX >= 0.0f || (st.lmbPressed && Hovered(px, py, pv, pv)))) {
         if (g_dragX >= 0.0f) anims::PreviewTurn((st.mouseX - g_dragX) * 0.01f);
@@ -246,6 +252,7 @@ void RenderSkinsMenu() {
         g_dragX = -1.0f;
     }
     if (model > 0) anims::PreviewModel(model, pv);
+    else if (model == 0 && !skins::AnyChosen()) anims::PreviewShow(nullptr, pv);  // CJ: ours as he is
 
     float ny = footY - sh - 12 * s;
     if (NowMs() < g_noteUntil) g.Text(FONT_SMALL, cx, ny, g_note, g_noteError ? kSaRed : kSaBlue, TEXT_SHADOW);

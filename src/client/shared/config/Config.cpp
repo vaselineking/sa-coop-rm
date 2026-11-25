@@ -51,7 +51,9 @@ bool ClientConfig::Load(const std::wstring& coopDirectory) {
     partnerTeleport = ini.GetBool("connect", "partner_teleport", partnerTeleport);
     sharedLife = ini.GetBool("connect", "shared_life", sharedLife);
     partnerCheats = ini.GetBool("connect", "partner_cheats", partnerCheats);
-    maxPlayers = std::clamp(ini.GetInt("connect", "max_players", maxPlayers), 2, proto::kMaxPlayers);
+    noMissionRespawn = ini.GetBool("connect", "no_mission_respawn", noMissionRespawn);
+    noVoiceover = ini.GetBool("connect", "no_voiceover", noVoiceover);
+    maxPlayers = std::clamp(ini.GetInt("connect", "max_players", maxPlayers), 1, proto::kMaxPlayers);
 
     windowed = ini.GetBool("game", "windowed", windowed);
     windowedStrict = ini.GetBool("game", "windowed_strict", windowedStrict);

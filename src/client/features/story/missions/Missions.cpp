@@ -1364,10 +1364,39 @@ const RemotePlayer* LivingPartner(uint8_t prefer) {
     return best;
 }
 
+// "No mission respawn" (the host's choice creating the game): a partner who dies in the host's story mission does not get
+// up beside the host. Kept PLAYING as the host above is, it lies where it fell and its camera follows the other players
+// (fire: the next one, aim: the one before) until the mission is passed or failed; then it gets up beside the host (any
+// living player when the host is down too), or, with nobody up within 15 s, dies as the game has it (a hospital). The
+// host's own death fails the mission at once: HookKillPlayer lets it through.
+struct Watch {
+    bool on = false;
+    uint8_t target = 0xFF;   // whose player the camera follows
+    uint64_t sinceMs = 0;    // dead since
+    uint64_t overMs = 0;     // the mission is over since (0: it goes on)
+    uint64_t fadeMs = 0;     // the screen going dark for the revive since
+    uint64_t camMs = 0;      // the camera last given to the target
+    void* camOn = nullptr;   // ...on this entity (the target's ped, or its vehicle)
+} g_watch;
+
+bool WatchInstead() {
+    if (g_watch.on) return true;
+    if (!Net().NoMissionRespawn() || Net().IsHost() || !HostMissionRecent(0) || !flow::InHostWorld()) return false;
+    g_watch = {};
+    g_watch.on = true, g_watch.sinceMs = NowMs();
+    ui::TheChat().AddSystem(TR("Вы погибли. До конца миссии вы наблюдаете за другими игроками (огонь и прицел меняют игрока).",
+                               "You died. You watch the other players till the mission ends (fire and aim switch the player)."));
+    LOGI("No mission respawn: down in the host's mission, watching");
+    return true;
+}
+
 using KillPlayerFn = void(__fastcall*)(void*, void*);
 KillPlayerFn g_origKillPlayer = nullptr;
 void __fastcall HookKillPlayer(void* info, void* edx) {
-    void* s = info == &PlayerInfos()[0] && Net().Online() && Net().IsHost() && !Net().SharedLife() ? FindMissionScript() : nullptr;
+    if (info == &PlayerInfos()[0] && Net().Online() && WatchInstead()) return;
+    void* s = info == &PlayerInfos()[0] && Net().Online() && Net().IsHost() && !Net().SharedLife() && !Net().NoMissionRespawn()
+                  ? FindMissionScript()
+                  : nullptr;
     if (const RemotePlayer* rp = s && StoryMission(s) ? LivingPartner(g_down.by) : nullptr) {
         if (!g_down.on) {
             g_down = {true, rp->id, NowMs(), 0};
@@ -1452,6 +1481,92 @@ void HostDownUpdate() {
     Revive(me, *rp);
     Fade(0.5f, 1);
     g_down = {};
+}
+
+bool Living(const RemotePlayer* rp) { return rp && rp->ped && rp->hasState && !(rp->state.flags & OnFootState::F_DEAD); }
+
+// the living player after (dir 1) or before (-1) the one watched, by id; 0xFF: nobody is up
+uint8_t NextWatched(uint8_t from, int dir) {
+    std::vector<uint8_t> up;
+    for (auto& [id, rp] : Players::Instance().All())
+        if (Living(&rp)) up.push_back(id);
+    if (up.empty()) return 0xFF;
+    std::sort(up.begin(), up.end());
+    auto it = std::find(up.begin(), up.end(), from);
+    if (it == up.end()) return dir < 0 ? up.back() : up.front();
+    int i = (int)(it - up.begin()) + dir;
+    return up[(size_t)((i + (int)up.size()) % (int)up.size())];
+}
+
+void StopSpectating(bool cameraBack) {
+    if (cameraBack) {
+        Cmd(0x02EB).Run();  // RESTORE_CAMERA_JUMPCUT
+        Cmd(0x0373).Run();  // SET_CAMERA_BEHIND_PLAYER
+    }
+    g_watch = {};
+}
+
+// the partner's camera on the others while it lies dead in the host's mission; up again once the mission is over
+void WatchUpdate() {
+    if (!g_watch.on) return;
+    CPlayerPed* me = core::IsPlayerReady() ? FindPlayerPed(0) : nullptr;
+    if (!me || !Net().Online()) return StopSpectating(me != nullptr);  // the game's death goes on from the next frame
+    if (me->Health() > 0.0f) {  // up by other means (a script's health)
+        LOGI("No mission respawn: up again by other means");
+        return StopSpectating(true);
+    }
+    uint64_t now = NowMs();
+    // the game's own death waits: its state PLAYING (KillPlayer is not let through) and no "wasted" over the picture
+    Ref<int32_t>(0x96A8B0) = 0;  // CGameLogic::GameState: GAMELOGIC_STATE_PLAYING
+    bool over = Net().IsHost() || !HostMissionRecent(0);
+    if (over && !g_watch.overMs) {
+        g_watch.overMs = now;
+        LOGI("No mission respawn: the mission is over, getting up");
+    }
+    if (g_watch.overMs) {
+        const RemotePlayer* host = Players::Instance().Get(Net().HostId());
+        const RemotePlayer* by = Living(host) ? host : Players::Instance().Get(NextWatched(0xFF, 1));
+        if (!Living(by)) {
+            if (now - g_watch.overMs > 15000) {
+                LOGI("No mission respawn: nobody up to get up beside, the game's own death");
+                StopSpectating(true);
+            }
+            return;
+        }
+        if (!g_watch.fadeMs) {
+            Fade(0.5f, 0);
+            g_watch.fadeMs = now;
+            return;
+        }
+        if (now - g_watch.fadeMs < 600) return;
+        Revive(me, *by);
+        Fade(0.5f, 1);
+        g_watch = {};
+        ui::TheChat().AddSystem(TR("Миссия закончилась: вы снова в игре.", "The mission is over: you are back in the game."));
+        return;
+    }
+    if (now - g_watch.sinceMs < 2000) return;  // the fall plays first
+    // fire: the next player, aim: the one before (our dead CJ fires nothing)
+    const CPad* pad = GetPad(0);
+    int dir = pad->NewState.ButtonCircle && !pad->OldState.ButtonCircle           ? 1
+              : pad->NewState.RightShoulder1 && !pad->OldState.RightShoulder1 ? -1
+                                                                                  : 0;
+    const RemotePlayer* rp = Players::Instance().Get(g_watch.target);
+    if (dir || !Living(rp)) {
+        uint8_t next = NextWatched(g_watch.target, dir ? dir : 1);
+        if (next != g_watch.target && next != 0xFF)
+            ui::TheChat().AddSystem(Format(TR("Вы наблюдаете за игроком %s.", "You are watching %s."), Net().PeerName(next).c_str()));
+        g_watch.target = next;
+        rp = Players::Instance().Get(next);
+    }
+    if (!Living(rp) || CutsceneRunning() || SceneWatched()) return;  // the host's scenes have the camera
+    // CCamera::TakeControl (target at +0x958): on its car as the game's chase camera, on foot behind it
+    CVehicle* v = rp->ped->InVehicle() ? rp->ped->Vehicle() : nullptr;
+    void* on = v ? (void*)v : (void*)rp->ped;
+    if ((on != g_watch.camOn || Ref<void*>(addr::TheCamera + 0x958) != on) && now - g_watch.camMs > 300) {
+        g_watch.camOn = on, g_watch.camMs = now;
+        CallMethod<0x50C7C0>((void*)addr::TheCamera, (CEntity*)on, v ? 18 : 4, 2, 1);  // MODE_CAM_ON_A_STRING / FOLLOWPED, a cut
+    }
 }
 
 void HandlePersonOnCar(uint8_t from, Reader& r) {
@@ -5373,6 +5488,7 @@ public:
     void OnPostProcess() override {
         if (!core::IsPlayerReady()) return;
         HealInheritedFlag();  // in a game of one's own too: such a save is broken there as well
+        WatchUpdate();        // "No mission respawn": also ends the watching once the session is gone
         if (!Net().Online()) return;
         if (Net().IsHost()) HostUpdate();
         else PartnerUpdate(), ShowHostLines();

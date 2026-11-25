@@ -165,6 +165,8 @@ bool StartServerProcess(const std::wstring& worldPath, bool newGame) {
     cmd += cfg.partnerTeleport ? L" --partner-teleport 1" : L" --partner-teleport 0";
     cmd += cfg.sharedLife ? L" --shared-life 1" : L" --shared-life 0";
     cmd += cfg.partnerCheats ? L" --partner-cheats 1" : L" --partner-cheats 0";
+    cmd += cfg.noMissionRespawn ? L" --no-mission-respawn 1" : L" --no-mission-respawn 0";
+    cmd += cfg.noVoiceover ? L" --no-voiceover 1" : L" --no-voiceover 0";
     cmd += L" --max " + std::to_wstring(cfg.maxPlayers);
 
     if (!g_serverJob) {
@@ -283,6 +285,8 @@ void SaveConnectSettings() {
     ini.SetInt("connect", "partner_teleport", cfg.partnerTeleport);
     ini.SetInt("connect", "shared_life", cfg.sharedLife);
     ini.SetInt("connect", "partner_cheats", cfg.partnerCheats);
+    ini.SetInt("connect", "no_mission_respawn", cfg.noMissionRespawn);
+    ini.SetInt("connect", "no_voiceover", cfg.noVoiceover);
     ini.SetInt("connect", "max_players", cfg.maxPlayers);
     ini.SetInt("keys", "chat", cfg.chatKey);  // the keys page
     ini.SetInt("keys", "enter_as_passenger", cfg.passengerKey);

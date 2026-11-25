@@ -40,7 +40,7 @@ static void WriteDefaultConfig(const std::wstring& path) {
         "port = 7788\r\n"
         "; Оставьте пустым, если пароль не нужен.\r\n"
         "password =\r\n"
-        "; Сколько игроков в игре: от 2 до 4.\r\n"
+        "; Сколько игроков в игре: от 1 до 100.\r\n"
         "max_players = 2\r\n"
         "; Ник игрока, который всегда будет хостом. Если пусто, хостом становится тот, кто зашёл первым.\r\n"
         "host =\r\n"
@@ -53,6 +53,11 @@ static void WriteDefaultConfig(const std::wstring& path) {
         "shared_life = 0\r\n"
         "; Поставьте 0, чтобы у напарников не работали чит-коды.\r\n"
         "partner_cheats = 1\r\n"
+        "; Поставьте 1, чтобы погибший на сюжетной миссии хоста не возрождался, а смотрел за другими до её конца.\r\n"
+        "; Гибель самого хоста тогда проваливает миссию.\r\n"
+        "no_mission_respawn = 0\r\n"
+        "; Поставьте 1, чтобы выключить озвучку скинов (coop\\voices): всегда звучит голос из игры.\r\n"
+        "no_voiceover = 0\r\n"
         "; Игра через интернет (UPnP, код приглашения, пробивка NAT). Если поставить 0, останется только локальная сеть.\r\n"
         "internet = 1\r\n"
         "; Ретранслятор на случай, если друг не может подключиться по коду.\r\n"
@@ -151,6 +156,8 @@ int wmain(int argc, wchar_t** argv) {
     cfg.partnerTeleport = ini.GetBool("server", "partner_teleport", true);
     cfg.sharedLife = ini.GetBool("server", "shared_life", false);
     cfg.partnerCheats = ini.GetBool("server", "partner_cheats", true);
+    cfg.noMissionRespawn = ini.GetBool("server", "no_mission_respawn", false);
+    cfg.noVoiceover = ini.GetBool("server", "no_voiceover", false);
     cfg.internet = ini.GetBool("server", "internet", true);
     cfg.turn = Trim(ini.Get("server", "turn", ""));
     cfg.dataDir = dataDir;
@@ -169,6 +176,8 @@ int wmain(int argc, wchar_t** argv) {
         else if (a == L"--partner-teleport") cfg.partnerTeleport = next() == "1";
         else if (a == L"--shared-life") cfg.sharedLife = next() == "1";
         else if (a == L"--partner-cheats") cfg.partnerCheats = next() == "1";
+        else if (a == L"--no-mission-respawn") cfg.noMissionRespawn = next() == "1";
+        else if (a == L"--no-voiceover") cfg.noVoiceover = next() == "1";
         else if (a == L"--config" || a == L"--data") ++i;
     }
 

@@ -452,8 +452,8 @@ struct Door {
     // each other game's door, by its player. One for all, the word of a third player whose door follows that door too
     // (DOOR_NONE) wiped it: the onlookers' Pay 'n' Spray opened again over a car being sprayed, their mod shop shut in
     // front of another player's car (three or four players, 10.11 audit)
-    uint8_t their[proto::kMaxPlayers] = {DOOR_NONE, DOOR_NONE, DOOR_NONE, DOOR_NONE};
-    static_assert(proto::kMaxPlayers == 4, "their's initialiser names each player");
+    uint8_t their[proto::kMaxPlayers];
+    Door() { memset(their, DOOR_NONE, sizeof(their)); }
     uint8_t sent = 0xFF;                   // ours, as last sent
     bool mirroring = false;                // ours follows the other game's
     bool forOther = false;                 // a safe house's: held open here for the other player

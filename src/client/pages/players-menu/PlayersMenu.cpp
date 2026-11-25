@@ -34,6 +34,7 @@ std::wstring g_amount;
 std::string g_note;  // what the last action did, shown a while
 bool g_noteError = false;
 uint64_t g_noteUntil = 0;
+int g_scroll = 0;  // the first player row shown (up to 100 players: the rest by the wheel)
 
 void Note(const std::string& text, bool error) { g_note = text, g_noteError = error, g_noteUntil = NowMs() + 6000; }
 
@@ -168,7 +169,9 @@ void RenderPlayersMenu() {
     float W = std::min(std::max(820 * s, need + 2 * pad), g.Width() - 32 * s), cw = W - 2 * pad;
     std::vector<weapon_gift::Owned> guns = g_giveTo != 0xFF && g_giveGun ? weapon_gift::Ours() : std::vector<weapon_gift::Owned>{};
     float giftH = g_giveTo == 0xFF ? 0.0f : 12 * s + sh + 8 * s + rowH + (guns.empty() ? 0.0f : 8 * s + rowH);
-    float H = 24 * s + mh + 18 * s + ch + 8 * s + rows * (rowH + gap) + giftH + 14 * s + sh + 14 * s + rowH + 20 * s;
+    float fixedH = 24 * s + mh + 18 * s + ch + 8 * s + giftH + 14 * s + sh + 14 * s + rowH + 20 * s;
+    int shown = std::clamp((int)((g.Height() - 32 * s - fixedH) / (rowH + gap)), 1, rows);  // the rows the screen has room for
+    float H = fixedH + shown * (rowH + gap);
     float x = (g.Width() - W) * 0.5f, y = std::max(16 * s, (g.Height() - H) * 0.45f);  // under the contest's board on top
     float cx = x + pad, cy = y + 24 * s;
     w::BeginFrame();
@@ -185,7 +188,16 @@ void RenderPlayersMenu() {
     g.Text(FONT_MENU_SMALL, colMoney, cy, TR("Деньги", "Money"), kSaMuted, TEXT_RIGHT);
     g.Text(FONT_MENU_SMALL, colPing, cy, TR("Пинг", "Ping"), kSaMuted, TEXT_RIGHT);
     cy += ch + 8 * s;
+    float listTop = cy, listH = shown * (rowH + gap);
+    if (auto& st = In().State(); st.wheel && Hovered(cx, listTop, cw, listH)) g_scroll -= st.wheel;
+    g_scroll = std::clamp(g_scroll, 0, rows - shown);
+    if (rows > shown) {  // where the list is scrolled to
+        float barH = listH * (float)shown / (float)rows, barY = listTop + listH * (float)g_scroll / (float)rows;
+        g.Rect(cx + cw + 12 * s, barY, 3 * s, barH - gap, kSaMuted);
+    }
+    int index = 0;
     auto row = [&](uint8_t id, const std::string& name, bool isHost, uint32_t ping, bool me) {
+        if (int i = index++; i < g_scroll || i >= g_scroll + shown) return;
         g.Rect(cx, cy, cw, rowH, 0xFF090C10);
         float ty = cy + (rowH - lh) * 0.5f;
         bool talking = me ? VoiceIsTransmitting() : VoiceIsSpeaking(id);

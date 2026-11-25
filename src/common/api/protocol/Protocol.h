@@ -13,7 +13,7 @@
 
 namespace coop::proto {
 
-constexpr int kMaxPlayers = 4;  // the host chooses 2 to 4 creating the game (the copies take turns in CWorld::Players[1])
+constexpr int kMaxPlayers = 100;  // the host chooses 1 to 100 creating the game (the copies take turns in CWorld::Players[1])
 constexpr uint8_t kServerId = 255;
 constexpr size_t kMaxChatLen = 160;
 constexpr size_t kWorldChunk = 16 * 1024;
@@ -325,6 +325,9 @@ struct Welcome {
     bool partnerTeleport = true;  // the partners may use /tp and /tphere (the host's choice too)
     bool sharedLife = false;      // a partner's death fails the host's story mission (the host's choice too)
     bool partnerCheats = true;    // the partners' cheat codes work (the host's choice too; 0.3.3's servers send none)
+    bool noMissionRespawn = false;  // a player who dies in the host's story mission watches the others till it ends; the
+                                    // host's own death fails it (the host's choice too)
+    bool noVoiceover = false;       // the skins' own voices (coop\voices) are off: the game's voice always (the host's choice)
     std::vector<PlayerEntry> players;  // already connected players (excluding you)
 
     void Write(Writer& w) const {
@@ -344,6 +347,8 @@ struct Welcome {
         w.Bool(partnerTeleport);
         w.Bool(sharedLife);
         w.Bool(partnerCheats);
+        w.Bool(noMissionRespawn);
+        w.Bool(noVoiceover);
     }
     bool Read(Reader& r) {
         yourId = r.U8();
@@ -365,6 +370,8 @@ struct Welcome {
         partnerTeleport = r.Bool();
         sharedLife = r.Bool();
         partnerCheats = r.Remaining() ? r.Bool() : true;
+        noMissionRespawn = r.Remaining() ? r.Bool() : false;
+        noVoiceover = r.Remaining() ? r.Bool() : false;
         return r.Ok();
     }
 };

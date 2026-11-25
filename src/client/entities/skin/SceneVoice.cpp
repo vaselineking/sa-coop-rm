@@ -111,7 +111,7 @@ bool Playable(const std::wstring& file, std::string& why) {
 // The cutscene that loads now asks for its track: whose voice it gets
 void Choose(int track) {
     std::string scene = SceneName(), why;
-    int model = scene.empty() ? 0 : SceneCjModel();
+    int model = scene.empty() || Net().NoVoiceover() ? 0 : SceneCjModel();  // "Disable voiceover": the game's track
     char path[MAX_PATH] = {};
     if (model) {
         std::wstring file = Cfg().coopDir + L"voices\\" + (SkinIsFemale(model) ? L"female\\" : L"male\\") + Utf8ToWide(scene) + L".ogg";

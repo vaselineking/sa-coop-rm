@@ -41,6 +41,10 @@ public:
     bool PartnerTeleport() const { return m_partnerTeleport; }  // the host let its partners use /tp and /tphere
     bool SharedLife() const { return Online() && m_sharedLife; }  // a partner's death fails the host's story mission
     bool PartnerCheats() const { return m_partnerCheats; }  // the host let its partners use cheat codes
+    // the dead don't get up in the host's story mission: they watch the others till it ends, the host's death fails it
+    bool NoMissionRespawn() const { return Online() && m_noMissionRespawn; }
+    // the skins' own voices (coop\voices) are off: the host's choice online, our own checkbox's in single player
+    bool NoVoiceover() const;
     const std::map<uint8_t, PeerInfo>& Peers() const { return m_peers; }
     const PeerInfo* Peer(uint8_t id) const;
     std::string PeerName(uint8_t id) const;
@@ -85,6 +89,8 @@ private:
     bool m_partnerTeleport = true;
     bool m_sharedLife = false;
     bool m_partnerCheats = true;
+    bool m_noMissionRespawn = false;
+    bool m_noVoiceover = false;
     std::string m_inviteCode;
     std::map<uint8_t, PeerInfo> m_peers;
     Handler m_handlers[256] = {};

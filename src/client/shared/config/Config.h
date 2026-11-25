@@ -21,7 +21,9 @@ struct ClientConfig {
     bool partnerTeleport = true;  // host: the partners may use /tp and /tphere
     bool sharedLife = false;      // host: a partner's death fails the host's story mission
     bool partnerCheats = true;    // host: the partners' cheat codes work
-    int maxPlayers = 2;           // host: how many play, 2 to 4
+    bool noMissionRespawn = false;  // host: the dead watch the others till the story mission ends, the host's death fails it
+    bool noVoiceover = false;       // host: the skins' own voices off, the game's voice always (single player too)
+    int maxPlayers = 2;           // host: how many play, 1 to 100 (proto::kMaxPlayers)
 
     // [game]
     bool windowed = false;
