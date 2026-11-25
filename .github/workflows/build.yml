@@ -1,10 +1,8 @@
 # Builds SA:COOP on every push and pull request and keeps both archives as artifacts: the full one (SA-COOP.zip) and the
 # light one without the skin packs and the skins' voices (SA-COOP-Lite.zip).
-# A tag like v0.4.0 also publishes them as two GitHub releases with the text of .github/release-notes.md:
-#   "SA:COOP v0.4.0"      on the tag itself, SA-COOP.zip, marked as the latest release;
-#   "SA:COOP v0.4.0 Lite" on the tag v0.4.0-lite (made by the workflow at the same commit), SA-COOP-Lite.zip.
-# The same from the site with no tag pushed: Actions -> build -> Run workflow, a version typed in (v0.4.0); the workflow
-# puts the tags on the chosen branch's commit itself.
+# A tag like v0.4.0 also publishes them as one GitHub release, "SA:COOP v0.4.0", with both archives attached and the text
+# of .github/release-notes.md. The same from the site with no tag pushed: Actions -> build -> Run workflow, a version typed
+# in (v0.4.0); the workflow puts the tag on the chosen branch's commit itself.
 name: build
 
 on:
@@ -24,8 +22,6 @@ permissions:
 
 jobs:
   build:
-    # the Lite release's own tag (v0.4.0-lite) must not build and publish everything again
-    if: ${{ !endsWith(github.ref, '-lite') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,42 +69,22 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
-    strategy:
-      matrix:
-        include:
-          - archive: SA-COOP
-            suffix: ""
-            title: ""
-            latest: "true"
-            intro: ""
-          - archive: SA-COOP-Lite
-            suffix: "-lite"
-            title: " Lite"
-            latest: "false"
-            intro: "Лёгкая версия: без паков скинов (`coop\\skinpacks`) и голосов скинов (`coop\\voices`), около 10 МБ. Вкладка «Паки» в окне F4 пустая, в катсценах и диалогах звучит голос из игры. Всё остальное как в полной версии."
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.archive }}
           path: dist
-
-      - name: Write the release's text
-        env:
-          INTRO: ${{ matrix.intro }}
-        run: |
-          {
-            if [ -n "$INTRO" ]; then printf '%s\n\n' "$INTRO"; fi
-            cat .github/release-notes.md
-          } > notes.md
+          merge-multiple: true  # the SA-COOP and SA-COOP-Lite artifacts: both zips side by side in dist/
 
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.VERSION }}${{ matrix.suffix }}
+          tag_name: ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
-          name: SA:COOP ${{ env.VERSION }}${{ matrix.title }}
-          files: dist/${{ matrix.archive }}.zip
-          body_path: notes.md
-          make_latest: ${{ matrix.latest }}
+          name: SA:COOP ${{ env.VERSION }}
+          files: |
+            dist/SA-COOP.zip
+            dist/SA-COOP-Lite.zip
+          fail_on_unmatched_files: true
+          body_path: .github/release-notes.md
