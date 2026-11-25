@@ -1437,17 +1437,27 @@ void Players::SpawnRemote(RemotePlayer& rp) {
     CallMethod<0x571B70>(ped, (CEntity**)&rp.ped);
     rp.pedHandle = handle;
     rp.padNew = rp.padOld = CControllerState{};
-    // radar blip, unless the player hid them (partner_blip = 0: a shoot-out not knowing where the other is, issue #44)
-    int blip = 0;
-    if (Cfg().partnerBlip) Cmd(0x0187).I(handle).Out(&blip).Run();  // ADD_BLIP_FOR_CHAR
-    if (blip) {
-        Cmd(0x07E0).I(blip).I(1).Run();       // SET_BLIP_AS_FRIENDLY
-        Cmd(0x0168).I(blip).I(2).Run();       // CHANGE_BLIP_SCALE
-        Cmd(0x018B).I(blip).I(Arrows() ? 0 : 2).Run();  // CHANGE_BLIP_DISPLAY: radar only, no 3D arrow (our arrow: none)
-        if (int64_t colour = BlipColour(rp.markColour); colour >= 0) Cmd(0x0165).I(blip).I((int)colour).Run();  // CHANGE_BLIP_COLOUR
-        rp.blip = blip;
-    }
+    UpdateMark(rp);
     LOGI("Remote player %d spawned (ped %p, handle %d)", rp.id, (void*)ped, handle);
+}
+
+// The radar blip, unless the player hid them (partner_blip = 0: a shoot-out not knowing where the other is, issue #44).
+// None while its player lies dead (watching the others in "No mission respawn" too): back when it is up again.
+void Players::UpdateMark(RemotePlayer& rp) {
+    bool want = Cfg().partnerBlip && rp.ped && rp.pedHandle >= 0 && !(rp.hasState && (rp.state.flags & OnFootState::F_DEAD));
+    if (!want && rp.blip) {
+        Cmd(0x0164).I(rp.blip).Run();  // REMOVE_BLIP
+        rp.blip = 0;
+    }
+    if (!want || rp.blip) return;
+    int blip = 0;
+    Cmd(0x0187).I(rp.pedHandle).Out(&blip).Run();  // ADD_BLIP_FOR_CHAR
+    if (!blip) return;
+    Cmd(0x07E0).I(blip).I(1).Run();       // SET_BLIP_AS_FRIENDLY
+    Cmd(0x0168).I(blip).I(2).Run();       // CHANGE_BLIP_SCALE
+    Cmd(0x018B).I(blip).I(Arrows() ? 0 : 2).Run();  // CHANGE_BLIP_DISPLAY: radar only, no 3D arrow (our arrow: none)
+    if (int64_t colour = BlipColour(rp.markColour); colour >= 0) Cmd(0x0165).I(blip).I((int)colour).Run();  // CHANGE_BLIP_COLOUR
+    rp.blip = blip;
 }
 
 void Players::DestroyRemote(RemotePlayer& rp) {
@@ -2322,6 +2332,7 @@ void Players::OnPreProcess() {
         }
         if (!rp.ped) SpawnRemote(rp);
         if (rp.ped) ApplyState(rp);
+        if (rp.ped) UpdateMark(rp);
         if (rp.ped) KeepApart(rp);
         if (rp.ped) KeepWalkSet(rp);
     }

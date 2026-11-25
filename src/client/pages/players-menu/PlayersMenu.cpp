@@ -163,8 +163,10 @@ void RenderPlayersMenu() {
     float moneyW = std::max(g.TextWidth(FONT_NORMAL, MoneyText(-99999999)), g.TextWidth(FONT_MENU_SMALL, TR("Деньги", "Money")));
     float roleW = std::max({g.TextWidth(FONT_MENU_SMALL, TR("напарник", "partner")), g.TextWidth(FONT_MENU_SMALL, TR("хост", "host")),
                             g.TextWidth(FONT_MENU_SMALL, TR("Роль", "Role"))});
-    float nameW = std::max(g.TextWidth(FONT_NORMAL, label(net.MyId(), Cfg().nickname) + TR(" (вы)", " (you)")), g.TextWidth(FONT_MENU_SMALL, TR("Ник", "Nickname")));
-    for (auto& [id, p] : net.Peers()) nameW = std::max(nameW, g.TextWidth(FONT_NORMAL, label(id, p.name)));
+    float deadW = 12 * s + g.TextWidth(FONT_MENU_SMALL, TR("мёртв", "dead"));  // the word after a dead one's name
+    float nameW = std::max(g.TextWidth(FONT_NORMAL, label(net.MyId(), Cfg().nickname) + TR(" (вы)", " (you)")) + deadW,
+                           g.TextWidth(FONT_MENU_SMALL, TR("Ник", "Nickname")));
+    for (auto& [id, p] : net.Peers()) nameW = std::max(nameW, g.TextWidth(FONT_NORMAL, label(id, p.name)) + deadW);
     float need = 14 * s + nameW + roleW + moneyW + pingW + actW + 4 * colGap;
     float W = std::min(std::max(820 * s, need + 2 * pad), g.Width() - 32 * s), cw = W - 2 * pad;
     std::vector<weapon_gift::Owned> guns = g_giveTo != 0xFF && g_giveGun ? weapon_gift::Ours() : std::vector<weapon_gift::Owned>{};
@@ -203,6 +205,13 @@ void RenderPlayersMenu() {
         bool talking = me ? VoiceIsTransmitting() : VoiceIsSpeaking(id);
         std::string shown = (talking ? TalkingMark() : std::string()) + label(id, name) + (me ? TR(" (вы)", " (you)") : "");
         g.Text(FONT_NORMAL, cx + 14 * s, ty, shown, me ? 0xFFFFFFFF : kText, TEXT_SHADOW);
+        // dead now (in "No mission respawn" it watches the others till the mission ends): said after the name
+        const RemotePlayer* who = me ? nullptr : Players::Instance().Get(id);
+        game::CPlayerPed* mine = me ? game::FindPlayerPed(0) : nullptr;
+        bool dead = me ? mine && mine->Health() <= 0.0f : who && who->hasState && (who->state.flags & OnFootState::F_DEAD);
+        if (dead)
+            g.Text(FONT_MENU_SMALL, cx + 14 * s + g.TextWidth(FONT_NORMAL, shown) + 12 * s, cy + (rowH - ch) * 0.5f,
+                   TR("мёртв", "dead"), kSaRed);
         g.Text(FONT_MENU_SMALL, colRole, cy + (rowH - ch) * 0.5f, isHost ? TR("хост", "host") : TR("напарник", "partner"),
                isHost ? kSaBlue : kSaGreen);
         int32_t m = 0;

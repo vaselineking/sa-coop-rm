@@ -155,6 +155,7 @@ private:
     void HandleExitCar(uint8_t from, Reader& r);
     void HandleTeleport(uint8_t from, Reader& r);
     void SpawnRemote(RemotePlayer& rp);
+    void UpdateMark(RemotePlayer& rp);  // its radar blip: none while it lies dead
     void DestroyRemote(RemotePlayer& rp);
     void ApplyState(RemotePlayer& rp);
     void ApplyVehicleSeat(RemotePlayer& rp);

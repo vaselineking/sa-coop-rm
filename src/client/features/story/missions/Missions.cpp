@@ -1375,8 +1375,11 @@ struct Watch {
     uint64_t sinceMs = 0;    // dead since
     uint64_t overMs = 0;     // the mission is over since (0: it goes on)
     uint64_t fadeMs = 0;     // the screen going dark for the revive since
-    uint64_t camMs = 0;      // the camera last given to the target
-    void* camOn = nullptr;   // ...on this entity (the target's ped, or its vehicle)
+    // the camera: our own around the watched player, turned by the mouse or the right stick, the wheel nearer or farther
+    bool cam = false;        // it holds the game's camera (a fixed one, set again each frame)
+    float yaw = 0.0f;        // the way it looks (0 north, as a ped's heading)
+    float pitch = -0.25f;    // up or down (looking down: the camera above)
+    float dist = 5.0f;       // from the watched player
 } g_watch;
 
 bool WatchInstead() {
@@ -1500,6 +1503,7 @@ uint8_t NextWatched(uint8_t from, int dir) {
 
 void StopSpectating(bool cameraBack) {
     if (cameraBack) {
+        if (CPlayerPed* me = FindPlayerPed(0)) Cmd(0x04BB).I(me->AreaCode()).Run();  // SET_AREA_VISIBLE: ours again
         Cmd(0x02EB).Run();  // RESTORE_CAMERA_JUMPCUT
         Cmd(0x0373).Run();  // SET_CAMERA_BEHIND_PLAYER
     }
@@ -1559,14 +1563,46 @@ void WatchUpdate() {
         g_watch.target = next;
         rp = Players::Instance().Get(next);
     }
-    if (!Living(rp) || CutsceneRunning() || SceneWatched()) return;  // the host's scenes have the camera
-    // CCamera::TakeControl (target at +0x958): on its car as the game's chase camera, on foot behind it
-    CVehicle* v = rp->ped->InVehicle() ? rp->ped->Vehicle() : nullptr;
-    void* on = v ? (void*)v : (void*)rp->ped;
-    if ((on != g_watch.camOn || Ref<void*>(addr::TheCamera + 0x958) != on) && now - g_watch.camMs > 300) {
-        g_watch.camOn = on, g_watch.camMs = now;
-        CallMethod<0x50C7C0>((void*)addr::TheCamera, (CEntity*)on, v ? 18 : 4, 2, 1);  // MODE_CAM_ON_A_STRING / FOLLOWPED, a cut
+    if (!Living(rp) || CutsceneRunning() || SceneWatched()) {  // the host's scenes have the camera, it is set anew after
+        g_watch.cam = false;
+        return;
     }
+    // its interior seen (CGame::currArea): Revive takes us there in the end anyway
+    if (Ref<int32_t>(0xB72914) != rp->state.area) Cmd(0x04BB).I(rp->state.area).Run();  // SET_AREA_VISIBLE
+    CVehicle* v = rp->ped->InVehicle() ? rp->ped->Vehicle() : nullptr;
+    CVector at = v ? v->GetPosition() + CVector{0.0f, 0.0f, 1.0f} : rp->ped->GetPosition() + CVector{0.0f, 0.0f, 0.6f};
+    if (dir || !g_watch.cam) {  // another player, or the camera back from a scene: behind it, at its distance
+        CMatrix* m = v ? v->Matrix() : nullptr;
+        g_watch.yaw = m ? std::atan2(-m->forward.x, m->forward.y) : rp->state.rotation;
+        g_watch.pitch = -0.25f;
+        g_watch.dist = v ? 9.0f : 5.0f;
+    }
+    // The mouse as the game's own camera takes it (CPad::NewMouseControllerState's move, CCamera's mouse speed), else
+    // the right stick (CPad::LookAroundLeftRight / UpDown)
+    float mx = Ref<float>(0xB73418 + 0x0C), my = Ref<float>(0xB73418 + 0x10);
+    if (mx != 0.0f || my != 0.0f) {
+        g_watch.yaw -= 3.0f * mx * Ref<float>(0xB6EC1C);    // CCamera::m_fMouseAccelHorzntl
+        g_watch.pitch += 4.0f * my * Ref<float>(0xB6EC18);  // m_fMouseAccelVertical
+    } else {
+        CPad* stick = GetPad(0);
+        float lr = CallMethod<0x540BD0, int16_t>(stick, (CPed*)me), ud = CallMethod<0x540CC0, int16_t>(stick, (CPed*)me);
+        g_watch.yaw -= (lr < 0.0f ? -1.0f : 1.0f) * lr * lr / 10000.0f / 17.5f * TimeStep();
+        g_watch.pitch += (ud < 0.0f ? -1.0f : 1.0f) * ud * ud / 22500.0f / 14.0f * TimeStep();
+    }
+    if (Ref<uint8_t>(0xB73418 + 3)) g_watch.dist -= 1.0f;  // the wheel: m_bMouseWheelUp, m_bMouseWheelDown
+    if (Ref<uint8_t>(0xB73418 + 4)) g_watch.dist += 1.0f;
+    g_watch.yaw = std::remainder(g_watch.yaw, 6.2831853f);
+    g_watch.pitch = std::clamp(g_watch.pitch, -1.3f, 0.6f);
+    g_watch.dist = std::clamp(g_watch.dist, 2.5f, v ? 25.0f : 15.0f);
+    float c = std::cos(g_watch.pitch);
+    CVector look{-std::sin(g_watch.yaw) * c, std::cos(g_watch.yaw) * c, std::sin(g_watch.pitch)};
+    CVector src = at - look * g_watch.dist;
+    bool found = false;  // not under the ground: a step up the hill behind the player
+    float ground = Call<0x5696C0, float>(src.x, src.y, src.z + 2.0f, &found, (CEntity**)nullptr);  // CWorld::FindGroundZFor3DCoord
+    if (found && src.z < ground + 0.5f) src.z = ground + 0.5f;
+    Cmd(0x015F).F(src.x).F(src.y).F(src.z).F(0.0f).F(0.0f).F(0.0f).Run();  // SET_FIXED_CAMERA_POSITION
+    Cmd(0x0160).F(at.x).F(at.y).F(at.z).I(2).Run();                        // POINT_CAMERA_AT_POINT, a jump cut
+    g_watch.cam = true;
 }
 
 void HandlePersonOnCar(uint8_t from, Reader& r) {
