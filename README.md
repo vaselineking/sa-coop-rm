@@ -369,6 +369,7 @@ You need Windows, Python 3.10 or newer and PowerShell. A script downloads the co
 powershell -ExecutionPolicy Bypass -File tools/get-toolchain.ps1
 python tools/build.py          # coop.dll, coop-server.exe and vorbisFile.dll in build/release/bin
 python tools/build.py dist     # the same plus the ready archive dist/SA-COOP.zip
+python tools/build.py lite     # a light archive dist/SA-COOP-Lite.zip: no skin packs, no skin voices
 python tools/fsd_check.py      # checks the dependencies between the layers
 python tools/i18n_check.py     # checks that every text of the game has its English one
 ```

@@ -41,17 +41,21 @@ jobs:
           PYTHONIOENCODING: utf-8  # it prints the Russian texts it finds
 
       - name: Build the archive
-        run: python tools/build.py dist
+        run: python tools/build.py dist lite
 
       - uses: actions/upload-artifact@v4
         with:
           name: SA-COOP
-          path: dist/SA-COOP.zip
+          path: |
+            dist/SA-COOP.zip
+            dist/SA-COOP-Lite.zip
 
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           name: SA:COOP ${{ github.ref_name }}
-          files: dist/SA-COOP.zip
+          files: |
+            dist/SA-COOP.zip
+            dist/SA-COOP-Lite.zip
           body_path: .github/release-notes.md

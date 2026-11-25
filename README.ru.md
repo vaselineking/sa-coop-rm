@@ -351,6 +351,7 @@ Hamachi и Radmin не нужны. Сервер сам открывает пор
 powershell -ExecutionPolicy Bypass -File tools/get-toolchain.ps1
 python tools/build.py          # coop.dll, coop-server.exe и vorbisFile.dll в build/release/bin
 python tools/build.py dist     # то же и готовый архив dist/SA-COOP.zip
+python tools/build.py lite     # лёгкий архив dist/SA-COOP-Lite.zip: без паков скинов и голосов скинов
 python tools/fsd_check.py      # проверка зависимостей между слоями
 python tools/i18n_check.py     # проверка, что у каждого текста игры есть английский
 ```

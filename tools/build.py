@@ -7,6 +7,7 @@ SA:COOP build script (llvm-mingw, i686).
     python tools/build.py --debug      build with -O0
     python tools/build.py --clean      remove the build output (build/release, build/debug)
     python tools/build.py dist         build everything and assemble dist/ (ready-to-play package)
+    python tools/build.py lite         the same as a light package, dist/SA-COOP-Lite: no skin packs, no skin voices
     python tools/build.py --with DIR   also compile the .cpp files of DIR into coop.dll (the test bot)
 
 The toolchain is expected in toolchain/llvm-mingw (see tools/get-toolchain.ps1).
@@ -237,10 +238,16 @@ def link_target(t, debug, objs, dep_objs):
     return True
 
 
-def assemble_dist(debug):
-    """dist/SA-COOP mirrors the install layout (copied over the game folder) + a zip of it."""
+# Left out of the Lite package: the skin packs (coop/skinpacks, the F4 window's "Packs" tab is empty then) and the skins'
+# voices (coop/voices: cutscenes and dialogue keep the game's voice). The mod runs without them as it is.
+LITE_SKIP = ("coop/skinpacks", "coop/voices")
+
+
+def assemble_dist(debug, lite=False):
+    """dist/SA-COOP (or SA-COOP-Lite) mirrors the install layout (copied over the game folder) + a zip of it."""
     src = BUILD / ("debug" if debug else "release") / "bin"
-    dist = ROOT / "dist" / "SA-COOP"
+    package = "SA-COOP-Lite" if lite else "SA-COOP"
+    dist = ROOT / "dist" / package
     shutil.rmtree(dist, ignore_errors=True)
     (dist / "coop").mkdir(parents=True)
     shutil.copy2(src / "coop.dll", dist / "coop.asi")  # any ASI loader picks up *.asi
@@ -250,8 +257,11 @@ def assemble_dist(debug):
     (dist / "coop" / "loader").mkdir()
     shutil.copy2(src / "vorbisFile.dll", dist / "coop" / "loader" / "vorbisFile.dll")  # install.bat puts it in place
     for f in (ROOT / "package").rglob("*"):
+        rel = f.relative_to(ROOT / "package")
+        if lite and any(rel.as_posix().startswith(skip + "/") for skip in LITE_SKIP):
+            continue
         if f.is_file():
-            dst = dist / f.relative_to(ROOT / "package")
+            dst = dist / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(f, dst)
     licenses = dist / "coop" / "licenses"  # the binaries carry ENet and MinHook: their notices go along
@@ -260,7 +270,7 @@ def assemble_dist(debug):
     shutil.copy2(ROOT / "third_party" / "enet" / "LICENSE", licenses / "ENet.txt")
     shutil.copy2(ROOT / "third_party" / "minhook" / "LICENSE.txt", licenses / "MinHook.txt")
     shutil.copy2(ROOT / "third_party" / "fontawesome" / "LICENSE.txt", licenses / "FontAwesome.txt")  # the microphone icon
-    archive = shutil.make_archive(str(ROOT / "dist" / "SA-COOP"), "zip", dist)
+    archive = shutil.make_archive(str(ROOT / "dist" / package), "zip", dist)
     print(f"dist assembled in {dist.relative_to(ROOT)} and {Path(archive).relative_to(ROOT)}")
 
 
@@ -281,7 +291,8 @@ def main():
         return 1
     extra = [str(p.resolve()) for d in args.extra for p in sorted(Path(d).glob("**/*.cpp"))]
     all_t = targets(extra)
-    want = [w for w in args.what if w != "dist"] or list(all_t.keys())
+    packages = [w for w in args.what if w in ("dist", "lite")]
+    want = [w for w in args.what if w not in packages] or list(all_t.keys())
     compdb = []
     ok = True
     built_deps = {}
@@ -303,8 +314,10 @@ def main():
             if good and ok:
                 ok &= link_target(t, args.debug, objs, dep_objs)
     (ROOT / "compile_commands.json").write_text(json.dumps(compdb, indent=1))
-    if ok and "dist" in args.what:
+    if ok and "dist" in packages:
         assemble_dist(args.debug)
+    if ok and "lite" in packages:
+        assemble_dist(args.debug, lite=True)
     print("BUILD OK" if ok else "BUILD FAILED")
     return 0 if ok else 1
 
