@@ -3,6 +3,8 @@
 # A tag like v0.4.0 also publishes them as two GitHub releases with the text of .github/release-notes.md:
 #   "SA:COOP v0.4.0"      on the tag itself, SA-COOP.zip, marked as the latest release;
 #   "SA:COOP v0.4.0 Lite" on the tag v0.4.0-lite (made by the workflow at the same commit), SA-COOP-Lite.zip.
+# The same from the site with no tag pushed: Actions -> build -> Run workflow, a version typed in (v0.4.0); the workflow
+# puts the tags on the chosen branch's commit itself.
 name: build
 
 on:
@@ -11,6 +13,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Версия релиза, например v0.4.0 (пусто: только собрать)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -62,8 +69,10 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}
     strategy:
       matrix:
         include:
@@ -97,9 +106,9 @@ jobs:
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}${{ matrix.suffix }}
+          tag_name: ${{ env.VERSION }}${{ matrix.suffix }}
           target_commitish: ${{ github.sha }}
-          name: SA:COOP ${{ github.ref_name }}${{ matrix.title }}
+          name: SA:COOP ${{ env.VERSION }}${{ matrix.title }}
           files: dist/${{ matrix.archive }}.zip
           body_path: notes.md
           make_latest: ${{ matrix.latest }}
